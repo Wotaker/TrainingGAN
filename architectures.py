@@ -4,7 +4,7 @@ import optax
 from flax import linen as nn
 from flax.training.train_state import TrainState as RawTrainState
 from flax.training.checkpoints import restore_checkpoint
-from flax.core import FrozenDict
+from flax.core import FrozenDict, unfreeze
 from chex import Array, Scalar, PRNGKey
 
 
@@ -80,4 +80,45 @@ class Generator(nn.Module):
         x = nn.sigmoid(x)
 
         return x
+
+
+class SimpleModel(nn.Module):
+
+    @nn.compact
+    def __call__(self, batch: Array):
+
+        batch_size = batch.shape[0]
+        x = batch
+        x = nn.Dense(features=8)(x)
+        x = nn.relu(x)
+        x = nn.Dense(features=3)(x)
+        x = nn.relu(x)
+
+        return x
+
+
+def zero_grads():
+    def init_fn(_): 
+        return ()
+    def update_fn(updates, state, params=None):
+        return jax.tree_map(jnp.zeros_like, updates), ()
+    return optax.GradientTransformation(init_fn, update_fn)
+
+
+def create_SimpleModel(
+    dummy_batch: Array,
+    init_key: PRNGKey,
+    lr: Scalar = 0.001,
+    momentum: Scalar = 0.9
+) -> RawTrainState:
+
+    model = SimpleModel()
+    params = model.init(init_key, dummy_batch)['params']
+    opt = optax.multi_transform(
+        {"sgd": optax.sgd(learning_rate=lr, momentum=momentum), "zero": zero_grads()},
+        {"Dense_0": "sgd", "Dense_1": "zero"}
+    )
+    # opt = optax.sgd(learning_rate=lr, momentum=momentum)
+
+    return RawTrainState.create(apply_fn=model.apply, params=unfreeze(params), tx=opt)
 
