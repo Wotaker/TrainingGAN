@@ -18,6 +18,17 @@ import optax
 import matplotlib.pyplot as plt
 
 
+def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
+
+    files = os.listdir(ds_path)
+    load_galaxy = lambda file: jnp.array(Image.open(os.path.join(ds_path, file)).convert('RGB'))
+    images = jnp.array(list(map(load_galaxy, files)))
+
+    if plot:
+        plot_samples(images, subplots_shape=(5, 5))
+    
+    return images
+
 
 def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):
 
