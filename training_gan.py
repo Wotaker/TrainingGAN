@@ -20,6 +20,11 @@ import matplotlib.pyplot as plt
 from architectures import *
 
 
+BATCH_SIZE = 8
+GENERATOR_LABELS = jnp.ones((BATCH_SIZE,))
+IMG_WHITE = jnp.ones(shape=(64, 64, 3))
+
+
 def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
 
     files = os.listdir(ds_path)
@@ -33,14 +38,8 @@ def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
 
 
 @jax.jit
-def binary_cross_entropy(logits: Array, labels: Array):
-
-    return -jnp.mean(labels * jnp.log(logits) + (1 - labels) * jnp.log(1 - logits))
-
-
-@jax.jit
-def apply_dys_model(state: TrainState, batch: Array, labels: Array):
-    """Computes dyscriminators gradients, loss and accuracy for a single batch."""
+def compute_dis_grads(state: TrainState, batch: Array, labels: Array):
+    """Computes discriminators gradients, loss and accuracy for a single batch."""
 
     def loss_fn(params, batch_stats):
 
@@ -72,40 +71,70 @@ def apply_dys_model(state: TrainState, batch: Array, labels: Array):
 
 
 @jax.jit
-def update_dyscriminator(state: TrainState, grads: nn.FrozenDict):
-
-    return state.apply_gradients(grads=grads)
-
-
-def dyscriminator_train_step(
+def discriminator_train_step(
     key: PRNGKey,
-    state_dys: TrainState,
+    state_dis: TrainState,
     state_gen: RawTrainState,
-    ds: Array,
-    batch_size: int,
-    perm: Array
+    batch_authentic: Array
 ) -> Tuple[TrainState, Scalar, Array]:
 
-    key, batch_key, uniform_key_1, uniform_key_2 = jax.random.split(key, 4)
-    batch_seed_vector = jax.random.normal(batch_key, shape=(batch_size, 128))
+    batch_key, uniform_key_1, uniform_key_2 = jax.random.split(key, 3)
+    batch_seed_vector = jax.random.normal(batch_key, shape=(BATCH_SIZE, 128))
 
-    batch_authentic = ds[perm, ...]
     batch_syntetic = state_gen.apply_fn(
-        {'params': state_gen.params["params"]},
+        {'params': state_gen.params},
         batch_seed_vector
     )
     batch_merged = jnp.concatenate((batch_authentic, batch_syntetic))
-    labels = jnp.concatenate((jnp.ones(batch_size), jnp.zeros(batch_size)))
+    labels = jnp.concatenate((jnp.ones(BATCH_SIZE), jnp.zeros(BATCH_SIZE)))
     noise = jnp.concatenate((
-        jax.random.uniform(uniform_key_1, (batch_size,), minval=-0.05, maxval=0.0),
-        jax.random.uniform(uniform_key_2, (batch_size,), minval=0.0, maxval=0.05)
+        jax.random.uniform(uniform_key_1, (BATCH_SIZE,), minval=-0.05, maxval=0.0),
+        jax.random.uniform(uniform_key_2, (BATCH_SIZE,), minval=0.0, maxval=0.05)
     ))
     labels += noise
 
-    grads, state_dys, loss, logits = apply_dys_model(state_dys, batch_merged, labels)
-    state_dys = update_dyscriminator(state_dys, grads)
+    grads, state_dis, loss, logits = compute_dis_grads(state_dis, batch_merged, labels)
+    state_dis = state_dis.apply_gradients(grads=grads)
 
-    return state_dys, loss, logits
+    return state_dis, loss, logits
+
+
+@jax.jit
+def compute_gen_grads(state_dis: TrainState, state_gen: RawTrainState, seed_vector: Array):
+
+    def loss_fn(gen_params: FrozenDict):
+
+        batch_syntetic = state_gen.apply_fn(
+            {'params': gen_params},
+            seed_vector
+        )
+        # logits = discriminate(state_dis, batch_syntetic)
+        # loss = binary_cross_entropy(logits, GENERATOR_LABELS)
+        loss = jnp.mean(IMG_WHITE - batch_syntetic)
+
+        return loss
+
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state_gen.params)
+
+    new_state_gen = RawTrainState(
+        step=state_gen.step,
+        apply_fn=state_gen.apply_fn,
+        params=state_gen.params,
+        tx=state_gen.tx,
+        opt_state=state_gen.opt_state,
+    )
+
+    return grads, new_state_gen, loss
+
+
+@jax.jit
+def generator_train_step(state_dis: TrainState, state_gen: RawTrainState, seed_vector: Array):
+
+    grads, state_gen, loss = compute_gen_grads(state_dis, state_gen, seed_vector)
+    state_gen = state_gen.apply_gradients(grads=grads)
+
+    return state_gen, loss
 
 
 def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):

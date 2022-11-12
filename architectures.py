@@ -12,6 +12,12 @@ class TrainState(RawTrainState):
     batch_stats: FrozenDict
 
 
+@jax.jit
+def binary_cross_entropy(logits: Array, labels: Array):
+
+    return -jnp.mean(labels * jnp.log(logits) + (1 - labels) * jnp.log(1 - logits))
+
+
 def zero_grads():
     def init_fn(_): 
         return ()
@@ -23,7 +29,7 @@ def zero_grads():
 def conv_block(x: Array, features: int, training: bool) -> Array:
 
     x = nn.Conv(features=features, kernel_size=(4, 4), strides=(2, 2), padding='SAME')(x)
-    x = nn.BatchNorm(use_running_average=not training)(x)
+    x = nn.BatchNorm(use_running_average=not training, momentum=0.9)(x)
     x = nn.leaky_relu(x, negative_slope=0.2)
 
     return x
@@ -104,6 +110,19 @@ def create_Discriminator(
         batch_stats=variables['batch_stats'])
 
 
+@jax.jit
+def discriminate(state_dys: TrainState, batch: Array) -> Scalar:
+    
+    logits = state_dys.apply_fn(
+        {'params': state_dys.params, 'batch_stats': state_dys.batch_stats},
+        batch,
+        training=False,
+        rngs={'dropout': jax.random.PRNGKey(42)}
+    )
+
+    return jnp.squeeze(logits)
+
+
 def create_Generator(
     dummy_batch: Array,
     init_key: PRNGKey,
@@ -111,7 +130,7 @@ def create_Generator(
 ) -> RawTrainState:
 
     model = Generator()
-    params = model.init(init_key, dummy_batch)
+    params = model.init(init_key, dummy_batch)['params']
 
     return RawTrainState.create(
         apply_fn=model.apply,
