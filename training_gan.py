@@ -108,9 +108,9 @@ def compute_gen_grads(state_dis: TrainState, state_gen: RawTrainState, seed_vect
             {'params': gen_params},
             seed_vector
         )
-        # logits = discriminate(state_dis, batch_syntetic)
-        # loss = binary_cross_entropy(logits, GENERATOR_LABELS)
-        loss = jnp.mean(IMG_WHITE - batch_syntetic)
+        logits = discriminate(state_dis, batch_syntetic)
+        loss = binary_cross_entropy(logits, GENERATOR_LABELS)
+        # loss = jnp.mean(IMG_WHITE - batch_syntetic)
 
         return loss
 
