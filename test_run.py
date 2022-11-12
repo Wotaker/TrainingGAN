@@ -45,7 +45,7 @@ def main():
     scan_init = (state_dis, state_gen, 0, key)
 
     t_start = time.time()
-    (state_dis, state_gen, _, key), losses = jax.lax.scan(scan_fun, scan_init, perms[:5])
+    (state_dis, state_gen, _, key), losses = jax.lax.scan(scan_fun, scan_init, perms)
     elapsed_time = time.time() - t_start
 
     loss_dis_acc, loss_gen_acc = losses
