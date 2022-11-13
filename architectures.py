@@ -94,22 +94,6 @@ class SimpleModel(nn.Module):
         return x
 
 
-def create_Discriminator(
-    dummy_batch: Array,
-    init_key: PRNGKey,
-    lr: Scalar = 0.00001
-) -> TrainState:
-
-    model = Discriminator()
-    variables = model.init(init_key, dummy_batch, training=False)
-
-    return TrainState.create(
-        apply_fn=model.apply,
-        params=variables['params'],
-        tx=optax.adam(learning_rate=lr),
-        batch_stats=variables['batch_stats'])
-
-
 @jax.jit
 def discriminate(state_dys: TrainState, batch: Array) -> Scalar:
     
@@ -123,13 +107,31 @@ def discriminate(state_dys: TrainState, batch: Array) -> Scalar:
     return jnp.squeeze(logits)
 
 
-def create_Generator(
-    dummy_batch: Array,
+def create_Discriminator(
     init_key: PRNGKey,
-    lr: Scalar = 0.001,
+    lr: Scalar = 0.00001
+) -> TrainState:
+
+    model = Discriminator()
+    dummy_batch = jnp.ones((16, 64, 64, 3))
+    variables = model.init(init_key, dummy_batch, training=False)
+
+    return TrainState.create(
+        apply_fn=model.apply,
+        params=variables['params'],
+        tx=optax.adam(learning_rate=lr),
+        batch_stats=variables['batch_stats'])
+
+
+def create_Generator(
+    init_key: PRNGKey,
+    lr: Scalar = 0.00001,
 ) -> RawTrainState:
 
+    batch_key, init_key = jax.random.split(init_key)
+
     model = Generator()
+    dummy_batch = jax.random.normal(batch_key, shape=(8, 128))
     params = model.init(init_key, dummy_batch)['params']
 
     return RawTrainState.create(

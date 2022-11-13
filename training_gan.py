@@ -1,5 +1,4 @@
 from typing import Callable, Tuple
-from absl import logging
 
 import os
 import time
@@ -23,6 +22,21 @@ from architectures import *
 BATCH_SIZE = 8
 GENERATOR_LABELS = jnp.ones((BATCH_SIZE,))
 IMG_WHITE = jnp.ones(shape=(64, 64, 3))
+
+
+class Metrices:
+
+	def __init__(self, epochs):
+		
+		self.idx = 0
+		self.loss_dis_trace: Array = jnp.zeros(epochs)
+		self.loss_gen_trace: Array = jnp.zeros(epochs)
+	
+	def update(self, loss_dis, loss_gen):
+
+		self.loss_dis_trace = self.loss_dis_trace.at[self.idx].set(loss_dis)
+		self.loss_gen_trace = self.loss_gen_trace.at[self.idx].set(loss_gen)
+		self.idx += 1
 
 
 def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
@@ -135,6 +149,97 @@ def generator_train_step(state_dis: TrainState, state_gen: RawTrainState, seed_v
     state_gen = state_gen.apply_gradients(grads=grads)
 
     return state_gen, loss
+
+
+@jax.jit
+def train_epoch(
+    epoch_key: PRNGKey,
+    state_dis: TrainState,
+    state_gen: RawTrainState,
+    dataset: Array,
+) -> Tuple[PRNGKey, TrainState, RawTrainState, Scalar, Scalar]:
+
+    key, perm_key, vectors_key = jax.random.split(epoch_key, 3)
+
+    n_samples = dataset.shape[0]
+    steps_per_epoch = n_samples // BATCH_SIZE
+    perms = jax.random.permutation(perm_key, n_samples)[:steps_per_epoch * BATCH_SIZE]
+    perms = jnp.reshape(perms, (steps_per_epoch, BATCH_SIZE))
+    seed_vectors = jax.random.normal(vectors_key, shape=(steps_per_epoch, BATCH_SIZE, 128))
+
+    def scan_fun(carry, perm):
+
+        state_dis, state_gen, step, key = carry
+
+        key, step_key = jax.random.split(key)
+
+        batch_authentic = dataset[perm, ...]
+        state_dis, loss_dis, _ = discriminator_train_step(step_key, state_dis, state_gen, batch_authentic)
+        state_gen, loss_gen = generator_train_step(state_dis, state_gen, seed_vectors[step])
+
+        return (state_dis, state_gen, step + 1, key), (loss_dis, loss_gen)
+
+    scan_init = (state_dis, state_gen, 0, key)
+    (state_dis, state_gen, _, key), (loss_dis_acc, loss_gen_acc) = jax.lax.scan(scan_fun, scan_init, perms)
+
+    return key, state_dis, state_gen, jnp.mean(loss_dis_acc), jnp.mean(loss_gen_acc)
+
+
+def train(
+    seed: int,
+    state_dis: TrainState,
+    state_gen: RawTrainState,
+    dataset: Array,
+    epochs: int,
+    log_every: int = 0,
+    checkpoint_dir: str = ""
+) -> Tuple[TrainState, RawTrainState, Metrices, float]:
+
+    key, epoch_key = jax.random.split(jkey(seed))
+
+    # Create structures to accumulate metrices
+    metrices = Metrices(epochs)
+
+    # Iterate through the dataset for epochs number of times
+    t_start = time.time()
+    for epoch in range(1, epochs + 1):
+
+        epoch_key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
+            epoch_key,
+            state_dis,
+            state_gen,
+            dataset
+        )
+        metrices.update(loss_dis=loss_dis, loss_gen=loss_gen)
+
+        if log_every and (epoch % log_every == 0 or epoch in {1, epochs}):
+            print(
+                'epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f'
+                % (epoch, loss_dis, loss_gen)
+            )
+
+        # checkpoint(checkpoint_dir, state_dis, state_gen, metrices, epoch)
+    
+    return state_dis, state_gen, metrices, time.time() - t_start
+
+
+# TODO add saving generated images and loss plots
+def checkpoint(
+    checkpoint_dir: str,
+    state_dis: TrainState,
+    state_gen: RawTrainState,
+    metrices: Metrices,
+    epoch: int
+) -> None:
+    
+    try:
+        save_checkpoint(checkpoint_dir, state_dis, epoch)
+        save_checkpoint(checkpoint_dir, state_gen, epoch)
+    except flax.errors.InvalidCheckpointError:
+        print(f'[Warning] Could not save state after epoch {epoch}!')
+        return
+    
+    return
 
 
 def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):

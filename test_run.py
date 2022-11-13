@@ -14,11 +14,8 @@ def main():
     ds_galaxies = load_ds()
     ds_galaxies.shape
 
-    dummy_batch_imgs = jnp.ones((16, 64, 64, 3))
-    state_dis = create_Discriminator(dummy_batch_imgs, jkey(42))
-
-    dummy_batch_vector = jax.random.normal(jkey(42), shape=(2, 128)) * 25
-    state_gen = create_Generator(dummy_batch_vector, jkey(42))
+    state_dis = create_Discriminator(jkey(42))
+    state_gen = create_Generator(jkey(42))
 
     key = jkey(42)
 
@@ -57,4 +54,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+
+    ds_galaxies = load_ds()
+    ds_galaxies.shape
+
+    state_dis = create_Discriminator(jkey(42))
+    state_gen = create_Generator(jkey(42))
+
+    t_start = time.time()
+    key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
+        jkey(42),
+        state_dis,
+        state_gen,
+        ds_galaxies
+    )
+    elapsed_time = time.time() - t_start
