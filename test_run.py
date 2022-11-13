@@ -61,11 +61,13 @@ if __name__ == "__main__":
     state_dis = create_Discriminator(jkey(42))
     state_gen = create_Generator(jkey(42))
 
-    t_start = time.time()
-    key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
-        jkey(42),
+    state_dis, state_gen, metrices, elapsed_time = train(
+        42,
         state_dis,
         state_gen,
-        ds_galaxies
+        ds_galaxies,
+        epochs=5,
+        log_every=1,
     )
-    elapsed_time = time.time() - t_start
+
+    print(f'\nTraining time: {elapsed_time:.4f}')

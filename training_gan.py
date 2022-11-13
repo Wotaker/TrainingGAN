@@ -23,19 +23,20 @@ BATCH_SIZE          = 8
 LR_DISCRIMINATOR    = 0.00001
 LR_GENERATOR        = 0.00001
 
-MONITOR_VECTORS     = jax.random.normal(jkey(43), shape=(6, 128)) * 25
+MONITOR_VECTORS     = jax.random.normal(jkey(43), shape=(6, 128))
 GENERATOR_LABELS    = jnp.ones((BATCH_SIZE,))
 IMG_WHITE           = jnp.ones(shape=(64, 64, 3))
 
 
 class Metrices:
 
-    def __init__(self, epochs):
-
+    def __init__(self, epochs: Array):
+        
+        n_epochs = epochs.shape[0]
         self.idx = 0
         self.epochs: Array = epochs
-        self.loss_dis_trace: Array = jnp.zeros(epochs)
-        self.loss_gen_trace: Array = jnp.zeros(epochs)
+        self.loss_dis_trace: Array = jnp.zeros(n_epochs)
+        self.loss_gen_trace: Array = jnp.zeros(n_epochs)
 	
     def update(self, loss_dis, loss_gen):
 
@@ -229,7 +230,6 @@ def train(
     return state_dis, state_gen, metrices, time.time() - t_start
 
 
-# TODO add saving generated images and loss plots
 def checkpoint(
     checkpoint_dir: str,
     state_dis: TrainState,
@@ -342,3 +342,25 @@ def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):
         ax.axis('off')
     fig.tight_layout()
     plt.show()
+
+
+if __name__ == "__main__":
+
+    ds_galaxies = load_ds()
+    ds_galaxies.shape
+
+    state_dis = create_Discriminator(jkey(42))
+    state_gen = create_Generator(jkey(42))
+
+    state_dis, state_gen, metrices, elapsed_time = train(
+        seed=42,
+        state_dis=state_dis,
+        state_gen=state_gen,
+        dataset=ds_galaxies,
+        epoch_count=25,
+        epoch_start=5,
+        log_every=1,
+        checkpoint_dir="/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
+    )
+
+    print(f'\nTraining time: {elapsed_time:.4f}')

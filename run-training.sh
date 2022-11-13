@@ -3,4 +3,4 @@
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 cd "/home/students/wciezobka/agh/TrainingGAN/"
-python3 test_run.py
+python3 training_gan.py
