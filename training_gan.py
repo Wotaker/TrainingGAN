@@ -212,6 +212,8 @@ def train(
     t_start = time.time()
     for epoch in epochs:
 
+        epoch = int(epoch)
+
         epoch_key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
             epoch_key,
             state_dis,
@@ -357,9 +359,9 @@ if __name__ == "__main__":
         state_dis=state_dis,
         state_gen=state_gen,
         dataset=ds_galaxies,
-        epoch_count=25,
-        epoch_start=5,
-        log_every=1,
+        epoch_count=100,
+        epoch_start=1,
+        log_every=10,
         checkpoint_dir="/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
     )
 
