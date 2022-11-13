@@ -123,6 +123,16 @@ def create_Discriminator(
         batch_stats=variables['batch_stats'])
 
 
+def generate(state_gen: RawTrainState, batch_vectors: Array) -> Array:
+
+    generated = state_gen.apply_fn(
+        {'params': state_gen.params},
+        batch_vectors
+    )
+    
+    return generated
+
+
 def create_Generator(
     init_key: PRNGKey,
     lr: Scalar = 0.00001,

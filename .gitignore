@@ -2,3 +2,4 @@ datasets/**
 __pycache__/
 .DS_Store
 sdbx.ipynb
+checkpoints/**

@@ -19,24 +19,29 @@ import matplotlib.pyplot as plt
 from architectures import *
 
 
-BATCH_SIZE = 8
-GENERATOR_LABELS = jnp.ones((BATCH_SIZE,))
-IMG_WHITE = jnp.ones(shape=(64, 64, 3))
+BATCH_SIZE          = 8
+LR_DISCRIMINATOR    = 0.00001
+LR_GENERATOR        = 0.00001
+
+MONITOR_VECTORS     = jax.random.normal(jkey(43), shape=(6, 128)) * 25
+GENERATOR_LABELS    = jnp.ones((BATCH_SIZE,))
+IMG_WHITE           = jnp.ones(shape=(64, 64, 3))
 
 
 class Metrices:
 
-	def __init__(self, epochs):
-		
-		self.idx = 0
-		self.loss_dis_trace: Array = jnp.zeros(epochs)
-		self.loss_gen_trace: Array = jnp.zeros(epochs)
-	
-	def update(self, loss_dis, loss_gen):
+    def __init__(self, epochs):
 
-		self.loss_dis_trace = self.loss_dis_trace.at[self.idx].set(loss_dis)
-		self.loss_gen_trace = self.loss_gen_trace.at[self.idx].set(loss_gen)
-		self.idx += 1
+        self.idx = 0
+        self.epochs: Array = epochs
+        self.loss_dis_trace: Array = jnp.zeros(epochs)
+        self.loss_gen_trace: Array = jnp.zeros(epochs)
+	
+    def update(self, loss_dis, loss_gen):
+
+        self.loss_dis_trace = self.loss_dis_trace.at[self.idx].set(loss_dis)
+        self.loss_gen_trace = self.loss_gen_trace.at[self.idx].set(loss_gen)
+        self.idx += 1
 
 
 def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
@@ -190,7 +195,8 @@ def train(
     state_dis: TrainState,
     state_gen: RawTrainState,
     dataset: Array,
-    epochs: int,
+    epoch_count: int,
+    epoch_start: int = 1,
     log_every: int = 0,
     checkpoint_dir: str = ""
 ) -> Tuple[TrainState, RawTrainState, Metrices, float]:
@@ -198,11 +204,12 @@ def train(
     key, epoch_key = jax.random.split(jkey(seed))
 
     # Create structures to accumulate metrices
+    epochs = jnp.arange(epoch_start, epoch_start + epoch_count)
     metrices = Metrices(epochs)
 
     # Iterate through the dataset for epochs number of times
     t_start = time.time()
-    for epoch in range(1, epochs + 1):
+    for epoch in epochs:
 
         epoch_key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
             epoch_key,
@@ -212,13 +219,12 @@ def train(
         )
         metrices.update(loss_dis=loss_dis, loss_gen=loss_gen)
 
-        if log_every and (epoch % log_every == 0 or epoch in {1, epochs}):
+        if log_every and (epoch % log_every == 0 or epoch in {epoch_start, epoch_start + epoch_count - 1}):
+            checkpoint(checkpoint_dir, state_dis, state_gen, metrices, epoch)
             print(
                 'epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f'
                 % (epoch, loss_dis, loss_gen)
             )
-
-        # checkpoint(checkpoint_dir, state_dis, state_gen, metrices, epoch)
     
     return state_dis, state_gen, metrices, time.time() - t_start
 
@@ -229,17 +235,93 @@ def checkpoint(
     state_dis: TrainState,
     state_gen: RawTrainState,
     metrices: Metrices,
-    epoch: int
+    epoch: int,
 ) -> None:
+
+    def save_generated():
+        
+        # Create directory tree if necessary
+        if not ("generated" in os.listdir(checkpoint_dir)):
+            os.mkdir(os.path.join(checkpoint_dir, "generated"))
+
+        # Collect checkpoints steps to a list
+        checkpoints = os.listdir(os.path.join(checkpoint_dir, "generated"))
+        checkpoints = list(map(lambda cpt: int(cpt.split('_')[-1]), checkpoints))
+
+        # Remove later checkpoints (if any)
+        to_removal = list(filter(lambda cpt: cpt >= epoch, checkpoints))
+        for cpt in to_removal:
+            cpt_directory = os.path.join(checkpoint_dir, "generated", f"checkpoint_{cpt}")
+            os.system(f'rm -rf {cpt_directory}')
+
+        # Create directory to store generated monitors
+        os.mkdir(os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}"))
+
+        # Generate monitor images and save in appropriate checkpoint directory
+        monitors_imgs = generate(state_gen, MONITOR_VECTORS)
+        for idx, img in enumerate(monitors_imgs):
+            plt.imsave(
+                os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}", f"monitor_{idx}.png"),
+                img,
+                cmap="Greys"
+            )
     
     try:
-        save_checkpoint(checkpoint_dir, state_dis, epoch)
-        save_checkpoint(checkpoint_dir, state_gen, epoch)
+        save_checkpoint(
+            checkpoint_dir,
+            state_dis,
+            epoch,
+            prefix="checkpoint-discriminator_",
+            overwrite=True,
+            keep_every_n_steps=1
+        )
+        save_checkpoint(
+            checkpoint_dir,
+            state_gen,
+            epoch,
+            prefix="checkpoint-generator_",
+            overwrite=True,
+            keep_every_n_steps=1
+        )
     except flax.errors.InvalidCheckpointError:
         print(f'[Warning] Could not save state after epoch {epoch}!')
         return
     
+    try:
+        save_generated()
+    except:
+        print(f'[Warning] Could not save generated monitor images after epoch {epoch}!')
+    
+    try:
+        plot_metrices(checkpoint_dir, metrices)
+    except:
+        print(f'[Warning] Could not save loss plot after epoch {epoch}!')
+    
     return
+
+
+def plot_metrices(checkpoint_dir: str, metrices: Metrices):
+
+    phi = (1 + jnp.sqrt(5)) / 2
+    height = 5
+    epochs = metrices.epochs
+
+    fig, axes = plt.subplots(1, 1)
+    fig.set_size_inches(phi * height, height)
+    
+    axes.plot(epochs, metrices.loss_dis_trace, label="discriminator")
+    axes.plot(epochs, metrices.loss_gen_trace, label="generator")
+    axes.set_xlabel("Epoch")
+    axes.set_ylabel("Loss Value")
+    axes.set_title("Loss Curves")
+    axes.legend()
+
+    # Create directory tree if necessary
+    if not ("loss" in os.listdir(checkpoint_dir)):
+        os.mkdir(os.path.join(checkpoint_dir, "loss"))
+
+    plt.savefig(os.path.join(checkpoint_dir, "loss", f"loss.png"))
+    plt.close()
 
 
 def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):
