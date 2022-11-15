@@ -198,7 +198,7 @@ def train(
     dataset: Array,
     epoch_count: int,
     epoch_start: int = 1,
-    log_every: int = 0,
+    checkpoint_every: int = 0,
     checkpoint_dir: str = ""
 ) -> Tuple[TrainState, RawTrainState, Metrices, float]:
 
@@ -214,6 +214,7 @@ def train(
 
         epoch = int(epoch)
 
+        # Train one epoch
         epoch_key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
             epoch_key,
             state_dis,
@@ -222,12 +223,16 @@ def train(
         )
         metrices.update(loss_dis=loss_dis, loss_gen=loss_gen)
 
-        if log_every and (epoch % log_every == 0 or epoch in {epoch_start, epoch_start + epoch_count - 1}):
+        # Update loss plot
+        print('epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f' % (epoch, loss_dis, loss_gen))
+        try:
+            plot_metrices(checkpoint_dir, metrices)
+        except:
+            print(f'[Warning] Could not save loss plot after epoch {epoch}!')
+
+        # Checkpoint every "log_every"
+        if checkpoint_every and (epoch % checkpoint_every == 0 or epoch in {epoch_start, epoch_start + epoch_count - 1}):
             checkpoint(checkpoint_dir, state_dis, state_gen, metrices, epoch)
-            print(
-                'epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f'
-                % (epoch, loss_dis, loss_gen)
-            )
     
     return state_dis, state_gen, metrices, time.time() - t_start
 
@@ -294,11 +299,6 @@ def checkpoint(
     except:
         print(f'[Warning] Could not save generated monitor images after epoch {epoch}!')
     
-    try:
-        plot_metrices(checkpoint_dir, metrices)
-    except:
-        print(f'[Warning] Could not save loss plot after epoch {epoch}!')
-    
     return
 
 
@@ -359,9 +359,9 @@ if __name__ == "__main__":
         state_dis=state_dis,
         state_gen=state_gen,
         dataset=ds_galaxies,
-        epoch_count=100,
+        epoch_count=1500,
         epoch_start=1,
-        log_every=10,
+        checkpoint_every=50,
         checkpoint_dir="/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
     )
 

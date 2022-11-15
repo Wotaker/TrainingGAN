@@ -67,7 +67,7 @@ if __name__ == "__main__":
         state_gen,
         ds_galaxies,
         epochs=5,
-        log_every=1,
+        checkpoint_every=1,
     )
 
     print(f'\nTraining time: {elapsed_time:.4f}')
