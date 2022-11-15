@@ -1,29 +1,35 @@
-from typing import Callable, Tuple
+from typing import Tuple
 
 import os
 import time
-import datetime
 from PIL import Image
-import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.random import PRNGKey as jkey
 from chex import Scalar, Array, PRNGKey, Shape
-import flax
-from flax import linen as nn
+import flax.errors
 from flax.training.train_state import TrainState as RawTrainState
-from flax.training.checkpoints import save_checkpoint
-import optax
+from flax.training.checkpoints import save_checkpoint, latest_checkpoint, restore_checkpoint
 import matplotlib.pyplot as plt
 
 from architectures import *
 
 
+# ======= Hyperparameters =======
 BATCH_SIZE          = 8
+EPOCHS              = 1500
 LR_DISCRIMINATOR    = 0.00001
 LR_GENERATOR        = 0.00001
 
-MONITOR_VECTORS     = jax.random.normal(jkey(43), shape=(6, 128))
+# ======= Variables =============
+SEED = 2137
+EPOCH_START = 0
+CKPT_EVERY = 50
+LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
+SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
+
+# ======= Constants ===================================================
+MONITOR_VECTORS     = jax.random.normal(jkey(666), shape=(6, 128))
 GENERATOR_LABELS    = jnp.ones((BATCH_SIZE,))
 IMG_WHITE           = jnp.ones(shape=(64, 64, 3))
 
@@ -45,6 +51,30 @@ class Metrices:
         self.idx += 1
 
 
+def main():
+
+    ds_galaxies = load_ds()
+
+    epoch_start, state_dis, state_gen = initialize_GAN(
+        seed=SEED,
+        epoch_start=EPOCH_START,
+        checkpoint_dir=LOAD_CKPT_DIR
+    )
+
+    state_dis, state_gen, metrices, elapsed_time = train(
+        seed=SEED,
+        state_dis=state_dis,
+        state_gen=state_gen,
+        dataset=ds_galaxies,
+        epoch_count=EPOCHS,
+        epoch_start=epoch_start,
+        checkpoint_every=CKPT_EVERY,
+        checkpoint_dir=SAVE_CKPT_DIR
+    )
+
+    print(f'\nTraining time: {elapsed_time:.4f}')
+
+
 def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
 
     files = os.listdir(ds_path)
@@ -55,6 +85,50 @@ def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
         plot_samples(images, subplots_shape=(5, 5))
     
     return images
+
+
+def load_state(
+    checkpoint_dir: str,
+    epoch: int = None
+) -> Tuple[int, TrainState, RawTrainState]:
+
+    dummy_state_dis = create_Discriminator(jax.random.PRNGKey(42))
+    dummy_state_gen = create_Generator(jax.random.PRNGKey(42))
+
+    if not epoch:
+        latest_path = latest_checkpoint(checkpoint_dir, "checkpoint-discriminator_")
+        epoch = latest_path.split("_")[-1]
+
+    state_restored_dis = restore_checkpoint(
+        ckpt_dir=checkpoint_dir,
+        target=dummy_state_dis,
+        step=epoch,
+        prefix="checkpoint-discriminator_"
+    )
+    state_restored_gen = restore_checkpoint(
+        ckpt_dir=checkpoint_dir,
+        target=dummy_state_gen,
+        step=epoch,
+        prefix="checkpoint-generator_"
+    )
+
+    print(f"[Info] loaded state from epoch {epoch} checkpoint")
+
+    return epoch, state_restored_dis, state_restored_gen
+
+
+def initialize_GAN(seed: int = SEED, epoch_start: int = None, checkpoint_dir: str = "") -> Tuple[int, TrainState, RawTrainState]:
+
+    assert not epoch_start or (epoch_start and checkpoint_dir), \
+        f"[Error] You need to provide path to checkpoint dir as well if starting training from epoch {epoch_start}!"
+    
+    if epoch_start:
+        return load_state(checkpoint_dir, epoch_start)
+    
+    state_dis = create_Discriminator(jkey(seed))
+    state_gen = create_Generator(jkey(seed))
+
+    return 1, state_dis, state_gen
 
 
 @jax.jit
@@ -241,7 +315,6 @@ def checkpoint(
     checkpoint_dir: str,
     state_dis: TrainState,
     state_gen: RawTrainState,
-    metrices: Metrices,
     epoch: int,
 ) -> None:
 
@@ -347,22 +420,4 @@ def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):
 
 
 if __name__ == "__main__":
-
-    ds_galaxies = load_ds()
-    ds_galaxies.shape
-
-    state_dis = create_Discriminator(jkey(42))
-    state_gen = create_Generator(jkey(42))
-
-    state_dis, state_gen, metrices, elapsed_time = train(
-        seed=42,
-        state_dis=state_dis,
-        state_gen=state_gen,
-        dataset=ds_galaxies,
-        epoch_count=1500,
-        epoch_start=1,
-        checkpoint_every=50,
-        checkpoint_dir="/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
-    )
-
-    print(f'\nTraining time: {elapsed_time:.4f}')
+    main()
