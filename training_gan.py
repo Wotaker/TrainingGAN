@@ -283,6 +283,7 @@ def train(
     metrices = Metrices(epochs)
 
     # Iterate through the dataset for epochs number of times
+    print(f'[INFO] Training started at {time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}')
     t_start = time.time()
     for epoch in epochs:
 
@@ -298,7 +299,7 @@ def train(
         metrices.update(loss_dis=loss_dis, loss_gen=loss_gen)
 
         # Update loss plot
-        print('epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f' % (epoch, loss_dis, loss_gen))
+        print('[INFO] epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f' % (epoch, loss_dis, loss_gen))
         try:
             plot_metrices(checkpoint_dir, metrices)
         except:
@@ -306,7 +307,7 @@ def train(
 
         # Checkpoint every "log_every"
         if checkpoint_every and (epoch % checkpoint_every == 0 or epoch in {epoch_start, epoch_start + epoch_count - 1}):
-            checkpoint(checkpoint_dir, state_dis, state_gen, metrices, epoch)
+            checkpoint(checkpoint_dir, state_dis, state_gen, epoch)
     
     return state_dis, state_gen, metrices, time.time() - t_start
 
