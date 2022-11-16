@@ -108,7 +108,7 @@ def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
 def load_state(
     checkpoint_dir: str,
     epoch: int = None
-) -> Tuple[int, TrainState, RawTrainState]:
+) -> Tuple[int, TrainState, TrainState]:
 
     dummy_state_dis = create_Discriminator(
         seed=SEED,
@@ -116,7 +116,7 @@ def load_state(
         b1=B1_DISCRIMINATOR,
         b2=B2_DISCRIMINATOR
     )
-    dummy_state_gen = create_Generator(
+    dummy_state_gen = create_GeneratorV2(
         seed=SEED,
         lr=LR_GENERATOR,
         b1=B1_GENERATOR,
@@ -148,7 +148,7 @@ def load_state(
 def initialize_GAN(
     epoch_start: int = None,
     checkpoint_dir: str = ""
-) -> Tuple[int, TrainState, RawTrainState]:
+) -> Tuple[int, TrainState, TrainState]:
 
     assert not epoch_start or (epoch_start and checkpoint_dir), \
         f"[Error] You need to provide path to checkpoint dir as well if starting training from epoch {epoch_start}!"
@@ -162,7 +162,7 @@ def initialize_GAN(
         b1=B1_DISCRIMINATOR,
         b2=B2_DISCRIMINATOR
     )
-    state_gen = create_Generator(
+    state_gen = create_GeneratorV2(
         seed=SEED,
         lr=LR_GENERATOR,
         b1=B1_GENERATOR,
@@ -171,14 +171,16 @@ def initialize_GAN(
 
     return 1, state_dis, state_gen
 
+# ================
+# ================
 
 @jax.jit
-def compute_dis_grads(state: TrainState, batch: Array, labels: Array):
+def compute_dis_grads(state_dis: TrainState, batch: Array, labels: Array):
     """Computes discriminators gradients and loss of a single batch"""
 
     def loss_fn(params, batch_stats):
 
-        logits, mutated_vars = state.apply_fn(
+        logits, mutated_vars = state_dis.apply_fn(
             {'params': params, 'batch_stats': batch_stats},
             batch,
             training=True,
@@ -191,14 +193,14 @@ def compute_dis_grads(state: TrainState, batch: Array, labels: Array):
         return loss, (mutated_vars, logits)
 
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, (mutated_vars, logits)), grads = grad_fn(state.params, state.batch_stats)
+    (loss, (mutated_vars, logits)), grads = grad_fn(state_dis.params, state_dis.batch_stats)
 
     new_state = TrainState(
-        step=state.step,
-        apply_fn=state.apply_fn,
-        params=state.params,
-        tx=state.tx,
-        opt_state=state.opt_state,
+        step=state_dis.step,
+        apply_fn=state_dis.apply_fn,
+        params=state_dis.params,
+        tx=state_dis.tx,
+        opt_state=state_dis.opt_state,
         batch_stats=mutated_vars['batch_stats']
     )
     
@@ -209,17 +211,14 @@ def compute_dis_grads(state: TrainState, batch: Array, labels: Array):
 def discriminator_train_step(
     key: PRNGKey,
     state_dis: TrainState,
-    state_gen: RawTrainState,
+    state_gen: TrainState,
     batch_authentic: Array
 ) -> Tuple[TrainState, Scalar, Scalar, Scalar]:
 
     batch_key, uniform_key_1, uniform_key_2 = jax.random.split(key, 3)
     batch_seed_vector = jax.random.normal(batch_key, shape=(BATCH_SIZE, 128))
 
-    batch_syntetic = state_gen.apply_fn(
-        {'params': state_gen.params},
-        batch_seed_vector
-    )
+    batch_syntetic = generateV2(state_gen, batch_seed_vector)
     batch_merged = jnp.concatenate((batch_authentic, batch_syntetic))
     labels = jnp.concatenate((jnp.ones(BATCH_SIZE), jnp.zeros(BATCH_SIZE)))
     noise = jnp.concatenate((
@@ -239,36 +238,38 @@ def discriminator_train_step(
 
 
 @jax.jit
-def compute_gen_grads(state_dis: TrainState, state_gen: RawTrainState, seed_vector: Array):
+def compute_gen_grads(state_dis: TrainState, state_gen: TrainState, seed_vector: Array):
 
-    def loss_fn(gen_params: FrozenDict):
+    def loss_fn(params, batch_stats):
 
-        batch_syntetic = state_gen.apply_fn(
-            {'params': gen_params},
-            seed_vector
+        batch_syntetic, mutated_vars = state_gen.apply_fn(
+            {'params': params, 'batch_stats': batch_stats},
+            seed_vector,
+            training=True,
+            mutable=['batch_stats']
         )
         logits = discriminate(state_dis, batch_syntetic)
         loss = binary_cross_entropy(logits, GENERATOR_LABELS)
-        # loss = jnp.mean(IMG_WHITE - batch_syntetic)
 
-        return loss, logits
+        return loss, (mutated_vars, logits)
 
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, logits), grads = grad_fn(state_gen.params)
+    (loss, (mutated_vars, logits)), grads = grad_fn(state_gen.params, state_gen.batch_stats)
 
-    new_state_gen = RawTrainState(
+    new_state_gen = TrainState(
         step=state_gen.step,
         apply_fn=state_gen.apply_fn,
         params=state_gen.params,
         tx=state_gen.tx,
         opt_state=state_gen.opt_state,
+        batch_stats=mutated_vars['batch_stats']
     )
 
     return grads, new_state_gen, loss, logits
 
 
 @jax.jit
-def generator_train_step(state_dis: TrainState, state_gen: RawTrainState, seed_vector: Array):
+def generator_train_step(state_dis: TrainState, state_gen: TrainState, seed_vector: Array):
 
     grads, state_gen, loss, logits = compute_gen_grads(state_dis, state_gen, seed_vector)
     state_gen = state_gen.apply_gradients(grads=grads)
@@ -283,9 +284,9 @@ def generator_train_step(state_dis: TrainState, state_gen: RawTrainState, seed_v
 def train_epoch(
     epoch_key: PRNGKey,
     state_dis: TrainState,
-    state_gen: RawTrainState,
+    state_gen: TrainState,
     dataset: Array,
-) -> Tuple[PRNGKey, TrainState, RawTrainState, Scalar, Scalar, Scalar, Scalar, Scalar]:
+) -> Tuple[PRNGKey, TrainState, TrainState, Scalar, Scalar, Scalar, Scalar, Scalar]:
 
     key, perm_key, vectors_key = jax.random.split(epoch_key, 3)
 
@@ -326,13 +327,13 @@ def train_epoch(
 def train(
     seed: int,
     state_dis: TrainState,
-    state_gen: RawTrainState,
+    state_gen: TrainState,
     dataset: Array,
     epoch_count: int,
     epoch_start: int = 1,
     checkpoint_every: int = 0,
     checkpoint_dir: str = ""
-) -> Tuple[TrainState, RawTrainState, Metrices, float]:
+) -> Tuple[TrainState, TrainState, Metrices, float]:
 
     key, epoch_key = jax.random.split(jkey(seed))
 
@@ -382,7 +383,7 @@ def train(
 def checkpoint(
     checkpoint_dir: str,
     state_dis: TrainState,
-    state_gen: RawTrainState,
+    state_gen: TrainState,
     epoch: int,
 ) -> None:
 
@@ -406,7 +407,7 @@ def checkpoint(
         os.mkdir(os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}"))
 
         # Generate monitor images and save in appropriate checkpoint directory
-        monitors_imgs = generate(state_gen, MONITOR_VECTORS)
+        monitors_imgs = generateV2(state_gen, MONITOR_VECTORS)
         for idx, img in enumerate(monitors_imgs):
             plt.imsave(
                 os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}", f"monitor_{idx}.png"),
