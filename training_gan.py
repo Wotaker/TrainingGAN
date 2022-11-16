@@ -17,14 +17,18 @@ from architectures import *
 
 # ======= Hyperparameters =======
 BATCH_SIZE          = 8
-EPOCHS              = 1500
+EPOCHS              = 300
 LR_DISCRIMINATOR    = 0.00001
 LR_GENERATOR        = 0.00001
+B1_DISCRIMINATOR    = 0.9
+B1_GENERATOR        = 0.9
+B2_DISCRIMINATOR    = 0.999
+B2_GENERATOR        = 0.999
 
 # ======= Variables =============
 SEED = 2137
 EPOCH_START = 0
-CKPT_EVERY = 50
+CKPT_EVERY = 30
 LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
 SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
 
@@ -39,15 +43,26 @@ class Metrices:
     def __init__(self, epochs: Array):
         
         n_epochs = epochs.shape[0]
-        self.idx = 0
         self.epochs: Array = epochs
+
         self.loss_dis_trace: Array = jnp.zeros(n_epochs)
         self.loss_gen_trace: Array = jnp.zeros(n_epochs)
+
+        self.acc_real_trace: Array = jnp.zeros(n_epochs)
+        self.acc_fake_trace: Array = jnp.zeros(n_epochs)
+        self.acc_gen_trace: Array = jnp.zeros(n_epochs)
+
+        self.idx = 0
 	
-    def update(self, loss_dis, loss_gen):
+    def update(self, loss_dis, loss_gen, acc_real, acc_fake, acc_gen):
 
         self.loss_dis_trace = self.loss_dis_trace.at[self.idx].set(loss_dis)
         self.loss_gen_trace = self.loss_gen_trace.at[self.idx].set(loss_gen)
+
+        self.acc_real_trace = self.acc_real_trace.at[self.idx].set(acc_real)
+        self.acc_fake_trace = self.acc_fake_trace.at[self.idx].set(acc_fake)
+        self.acc_gen_trace = self.acc_gen_trace.at(self.idx).set(acc_gen)
+
         self.idx += 1
 
 
@@ -56,7 +71,6 @@ def main():
     ds_galaxies = load_ds()
 
     epoch_start, state_dis, state_gen = initialize_GAN(
-        seed=SEED,
         epoch_start=EPOCH_START,
         checkpoint_dir=LOAD_CKPT_DIR
     )
@@ -86,14 +100,25 @@ def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
     
     return images
 
-
+# TODO Problem, wczytujemy równie stare hiperparametry i nie ma ich jak zmienić
+# dymmy_states są tylko potrzebne jkao pierwowzory kształtu, nic z nich nie zostaje przepisane
 def load_state(
     checkpoint_dir: str,
     epoch: int = None
 ) -> Tuple[int, TrainState, RawTrainState]:
 
-    dummy_state_dis = create_Discriminator(jax.random.PRNGKey(42))
-    dummy_state_gen = create_Generator(jax.random.PRNGKey(42))
+    dummy_state_dis = create_Discriminator(
+        seed=SEED,
+        lr=LR_DISCRIMINATOR,
+        b1=B1_DISCRIMINATOR,
+        b2=B2_DISCRIMINATOR
+    )
+    dummy_state_gen = create_Generator(
+        seed=SEED,
+        lr=LR_GENERATOR,
+        b1=B1_GENERATOR,
+        b2=B2_GENERATOR
+    )
 
     if not epoch:
         latest_path = latest_checkpoint(checkpoint_dir, "checkpoint-discriminator_")
@@ -117,7 +142,10 @@ def load_state(
     return epoch, state_restored_dis, state_restored_gen
 
 
-def initialize_GAN(seed: int = SEED, epoch_start: int = None, checkpoint_dir: str = "") -> Tuple[int, TrainState, RawTrainState]:
+def initialize_GAN(
+    epoch_start: int = None,
+    checkpoint_dir: str = ""
+) -> Tuple[int, TrainState, RawTrainState]:
 
     assert not epoch_start or (epoch_start and checkpoint_dir), \
         f"[Error] You need to provide path to checkpoint dir as well if starting training from epoch {epoch_start}!"
@@ -125,8 +153,18 @@ def initialize_GAN(seed: int = SEED, epoch_start: int = None, checkpoint_dir: st
     if epoch_start:
         return load_state(checkpoint_dir, epoch_start)
     
-    state_dis = create_Discriminator(jkey(seed))
-    state_gen = create_Generator(jkey(seed))
+    state_dis = create_Discriminator(
+        seed=SEED,
+        lr=LR_DISCRIMINATOR,
+        b1=B1_DISCRIMINATOR,
+        b2=B2_DISCRIMINATOR
+    )
+    state_gen = create_Generator(
+        seed=SEED,
+        lr=LR_GENERATOR,
+        b1=B1_GENERATOR,
+        b2=B2_GENERATOR
+    )
 
     return 1, state_dis, state_gen
 
@@ -170,7 +208,7 @@ def discriminator_train_step(
     state_dis: TrainState,
     state_gen: RawTrainState,
     batch_authentic: Array
-) -> Tuple[TrainState, Scalar, Array]:
+) -> Tuple[TrainState, Scalar, Scalar, Scalar]:
 
     batch_key, uniform_key_1, uniform_key_2 = jax.random.split(key, 3)
     batch_seed_vector = jax.random.normal(batch_key, shape=(BATCH_SIZE, 128))
@@ -190,7 +228,11 @@ def discriminator_train_step(
     grads, state_dis, loss, logits = compute_dis_grads(state_dis, batch_merged, labels)
     state_dis = state_dis.apply_gradients(grads=grads)
 
-    return state_dis, loss, logits
+    # Compute discriminator accuracy (acc_real, acc_fake)
+    acc_real = jnp.sum(logits[:BATCH_SIZE] == labels[:BATCH_SIZE]) / BATCH_SIZE
+    acc_fake = jnp.sum(logits[BATCH_SIZE:] == labels[BATCH_SIZE:]) / BATCH_SIZE
+
+    return state_dis, loss, acc_real, acc_fake
 
 
 @jax.jit
@@ -206,10 +248,10 @@ def compute_gen_grads(state_dis: TrainState, state_gen: RawTrainState, seed_vect
         loss = binary_cross_entropy(logits, GENERATOR_LABELS)
         # loss = jnp.mean(IMG_WHITE - batch_syntetic)
 
-        return loss
+        return loss, logits
 
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grads = grad_fn(state_gen.params)
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    (loss, logits), grads = grad_fn(state_gen.params)
 
     new_state_gen = RawTrainState(
         step=state_gen.step,
@@ -219,16 +261,19 @@ def compute_gen_grads(state_dis: TrainState, state_gen: RawTrainState, seed_vect
         opt_state=state_gen.opt_state,
     )
 
-    return grads, new_state_gen, loss
+    return grads, new_state_gen, loss, logits
 
 
 @jax.jit
 def generator_train_step(state_dis: TrainState, state_gen: RawTrainState, seed_vector: Array):
 
-    grads, state_gen, loss = compute_gen_grads(state_dis, state_gen, seed_vector)
+    grads, state_gen, loss, logits = compute_gen_grads(state_dis, state_gen, seed_vector)
     state_gen = state_gen.apply_gradients(grads=grads)
 
-    return state_gen, loss
+    # Compute generator accuracy (acc_gen)
+    acc_gen = jnp.sum(logits == GENERATOR_LABELS) / BATCH_SIZE
+
+    return state_gen, loss, acc_gen
 
 
 @jax.jit
@@ -237,7 +282,7 @@ def train_epoch(
     state_dis: TrainState,
     state_gen: RawTrainState,
     dataset: Array,
-) -> Tuple[PRNGKey, TrainState, RawTrainState, Scalar, Scalar]:
+) -> Tuple[PRNGKey, TrainState, RawTrainState, Scalar, Scalar, Scalar, Scalar, Scalar]:
 
     key, perm_key, vectors_key = jax.random.split(epoch_key, 3)
 
@@ -254,15 +299,25 @@ def train_epoch(
         key, step_key = jax.random.split(key)
 
         batch_authentic = dataset[perm, ...]
-        state_dis, loss_dis, _ = discriminator_train_step(step_key, state_dis, state_gen, batch_authentic)
-        state_gen, loss_gen = generator_train_step(state_dis, state_gen, seed_vectors[step])
+        state_dis, loss_dis, acc_real, acc_fake = \
+            discriminator_train_step(step_key, state_dis, state_gen, batch_authentic)
+        state_gen, loss_gen, acc_gen = \
+            generator_train_step(state_dis, state_gen, seed_vectors[step])
 
-        return (state_dis, state_gen, step + 1, key), (loss_dis, loss_gen)
+        return (state_dis, state_gen, step + 1, key), (loss_dis, loss_gen, acc_real, acc_fake, acc_gen)
 
     scan_init = (state_dis, state_gen, 0, key)
-    (state_dis, state_gen, _, key), (loss_dis_acc, loss_gen_acc) = jax.lax.scan(scan_fun, scan_init, perms)
+    (state_dis, state_gen, _, key), (loss_dis_acc, loss_gen_acc, acc_real_acc, acc_fake_acc, acc_gen_acc) = \
+        jax.lax.scan(scan_fun, scan_init, perms)
+    
+    # Calculate metrices
+    loss_dis = jnp.mean(loss_dis_acc)
+    loss_gen = jnp.mean(loss_gen_acc)
+    acc_real = jnp.mean(acc_real_acc) / steps_per_epoch
+    acc_fake = jnp.mean(acc_fake_acc) / steps_per_epoch
+    acc_gen = jnp.mean(acc_gen_acc) / steps_per_epoch
 
-    return key, state_dis, state_gen, jnp.mean(loss_dis_acc), jnp.mean(loss_gen_acc)
+    return key, state_dis, state_gen, loss_dis, loss_gen, acc_real, acc_fake, acc_gen
 
 
 def train(
@@ -290,13 +345,19 @@ def train(
         epoch = int(epoch)
 
         # Train one epoch
-        epoch_key, state_dis, state_gen, loss_dis, loss_gen = train_epoch(
+        epoch_key, state_dis, state_gen, loss_dis, loss_gen, acc_real, acc_fake, acc_gen = train_epoch(
             epoch_key,
             state_dis,
             state_gen,
             dataset
         )
-        metrices.update(loss_dis=loss_dis, loss_gen=loss_gen)
+        metrices.update(
+            loss_dis=loss_dis,
+            loss_gen=loss_gen,
+            acc_real=acc_real,
+            acc_fake=acc_fake,
+            acc_gen=acc_gen
+        )
 
         # Update loss plot
         print('[INFO] epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f' % (epoch, loss_dis, loss_gen))
@@ -379,24 +440,34 @@ def checkpoint(
 def plot_metrices(checkpoint_dir: str, metrices: Metrices):
 
     phi = (1 + jnp.sqrt(5)) / 2
-    height = 5
+    height = 3
     epochs = metrices.epochs
 
-    fig, axes = plt.subplots(1, 1)
-    fig.set_size_inches(phi * height, height)
+    fig, axes = plt.subplots(2, 1)
+    fig.set_size_inches(phi * height, 2 * height)
     
-    axes.plot(epochs, metrices.loss_dis_trace, label="discriminator")
-    axes.plot(epochs, metrices.loss_gen_trace, label="generator")
-    axes.set_xlabel("Epoch")
-    axes.set_ylabel("Loss Value")
-    axes.set_title("Loss Curves")
-    axes.legend()
+    # Plot loss
+    axes[0].plot(epochs, metrices.loss_dis_trace, label="discriminator")
+    axes[0].plot(epochs, metrices.loss_gen_trace, label="generator")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss Value")
+    axes[0].set_title("Loss trace")
+    axes[0].legend()
+
+    # Plot accuracy
+    axes[1].plot(epochs, 100 * metrices.acc_real_trace, label="disc. real")
+    axes[1].plot(epochs, 100 * metrices.acc_fake_trace, label="disc. fake")
+    axes[1].plot(epochs, 100 * metrices.acc_gen_trace, label="generator")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Accuracy")
+    axes[1].set_title("Accuracy trace")
+    axes[1].legend()
 
     # Create directory tree if necessary
-    if not ("loss" in os.listdir(checkpoint_dir)):
-        os.mkdir(os.path.join(checkpoint_dir, "loss"))
+    if not ("metrices" in os.listdir(checkpoint_dir)):
+        os.mkdir(os.path.join(checkpoint_dir, "metrices"))
 
-    plt.savefig(os.path.join(checkpoint_dir, "loss", f"loss.png"))
+    plt.savefig(os.path.join(checkpoint_dir, "metrices", f"metrices.png"))
     plt.close()
 
 

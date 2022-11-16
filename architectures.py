@@ -108,18 +108,20 @@ def discriminate(state_dys: TrainState, batch: Array) -> Scalar:
 
 
 def create_Discriminator(
-    init_key: PRNGKey,
-    lr: Scalar = 0.00001
+    seed: int,
+    lr: Scalar = 0.00001,
+    b1: Scalar = 0.9,
+    b2: Scalar = 0.999
 ) -> TrainState:
 
     model = Discriminator()
     dummy_batch = jnp.ones((16, 64, 64, 3))
-    variables = model.init(init_key, dummy_batch, training=False)
+    variables = model.init(jax.random.PRNGKey(seed), dummy_batch, training=False)
 
     return TrainState.create(
         apply_fn=model.apply,
         params=variables['params'],
-        tx=optax.adam(learning_rate=lr),
+        tx=optax.adam(learning_rate=lr, b1=b1, b2=b2),
         batch_stats=variables['batch_stats'])
 
 
@@ -134,11 +136,13 @@ def generate(state_gen: RawTrainState, batch_vectors: Array) -> Array:
 
 
 def create_Generator(
-    init_key: PRNGKey,
+    seed: int,
     lr: Scalar = 0.00001,
+    b1: Scalar = 0.9,
+    b2: Scalar = 0.999
 ) -> RawTrainState:
 
-    batch_key, init_key = jax.random.split(init_key)
+    batch_key, init_key = jax.random.split(jax.random.PRNGKey(seed))
 
     model = Generator()
     dummy_batch = jax.random.normal(batch_key, shape=(8, 128))
@@ -147,7 +151,7 @@ def create_Generator(
     return RawTrainState.create(
         apply_fn=model.apply,
         params=params,
-        tx=optax.adam(learning_rate=lr)
+        tx=optax.adam(learning_rate=lr, b1=b1, b2=b2)
     )
 
 
