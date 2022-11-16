@@ -1,6 +1,6 @@
 datasets/**
 __pycache__/
 .DS_Store
-sdbx.ipynb
+sdbx.*
 checkpoints/**
 *.out
