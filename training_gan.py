@@ -174,7 +174,7 @@ def initialize_GAN(
 
 @jax.jit
 def compute_dis_grads(state: TrainState, batch: Array, labels: Array):
-    """Computes discriminators gradients, loss and accuracy for a single batch."""
+    """Computes discriminators gradients and loss of a single batch"""
 
     def loss_fn(params, batch_stats):
 
@@ -232,8 +232,8 @@ def discriminator_train_step(
     state_dis = state_dis.apply_gradients(grads=grads)
 
     # Compute discriminator accuracy (acc_real, acc_fake)
-    acc_real = jnp.sum(logits[:BATCH_SIZE] == labels[:BATCH_SIZE]) / BATCH_SIZE
-    acc_fake = jnp.sum(logits[BATCH_SIZE:] == labels[BATCH_SIZE:]) / BATCH_SIZE
+    acc_real = jnp.sum(logits[:BATCH_SIZE]) / BATCH_SIZE
+    acc_fake = jnp.sum(1 - logits[BATCH_SIZE:]) / BATCH_SIZE
 
     return state_dis, loss, acc_real, acc_fake
 
@@ -274,7 +274,7 @@ def generator_train_step(state_dis: TrainState, state_gen: RawTrainState, seed_v
     state_gen = state_gen.apply_gradients(grads=grads)
 
     # Compute generator accuracy (acc_gen)
-    acc_gen = jnp.sum(logits == GENERATOR_LABELS) / BATCH_SIZE
+    acc_gen = jnp.sum(logits) / BATCH_SIZE
 
     return state_gen, loss, acc_gen
 
