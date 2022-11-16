@@ -363,7 +363,10 @@ def train(
         )
 
         # Update loss plot
-        print('[INFO] epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f' % (epoch, loss_dis, loss_gen))
+        print(
+            '[INFO] epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f, acc_real: %.4f, acc_fake: %.4f, acc_gen: %.4f' \
+                % (epoch, loss_dis, loss_gen, acc_real, acc_fake, acc_gen)
+        )
         try:
             plot_metrices(checkpoint_dir, metrices)
         except:
@@ -453,8 +456,7 @@ def plot_metrices(checkpoint_dir: str, metrices: Metrices):
     axes[0].plot(epochs, metrices.loss_dis_trace, label="discriminator")
     axes[0].plot(epochs, metrices.loss_gen_trace, label="generator")
     axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Loss Value")
-    axes[0].set_title("Loss trace")
+    axes[0].set_ylabel("Loss Value [%]")
     axes[0].legend()
 
     # Plot accuracy
@@ -463,7 +465,6 @@ def plot_metrices(checkpoint_dir: str, metrices: Metrices):
     axes[1].plot(epochs, 100 * metrices.acc_gen_trace, label="generator")
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("Accuracy")
-    axes[1].set_title("Accuracy trace")
     axes[1].legend()
 
     # Create directory tree if necessary
