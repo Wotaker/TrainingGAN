@@ -18,7 +18,7 @@ from architectures import *
 # ======= Hyperparameters =======
 BATCH_SIZE          = 8
 EPOCHS              = 300
-LR_DISCRIMINATOR    = 0.0002
+LR_DISCRIMINATOR    = 0.00005
 LR_GENERATOR        = 0.0002
 B1_DISCRIMINATOR    = 0.5
 B1_GENERATOR        = 0.5
@@ -26,12 +26,12 @@ B2_DISCRIMINATOR    = 0.999
 B2_GENERATOR        = 0.999
 
 # ======= Variables =============
-SEED = 2137
+SEED = 21537
 EPOCH_START = 0
-CKPT_EVERY = 30
-LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/squares/test_1"
-SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/squares/test_1"
-DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/squares"
+CKPT_EVERY = 50
+LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxies/seed_21537"
+SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxies/seed_21537"
+DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/galaxies"
 
 # ======= Constants ===================================================
 MONITOR_VECTORS     = jax.random.normal(jkey(666), shape=(6, 128))
