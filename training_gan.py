@@ -18,10 +18,10 @@ from architectures import *
 # ======= Hyperparameters =======
 BATCH_SIZE          = 8
 EPOCHS              = 300
-LR_DISCRIMINATOR    = 0.00001
-LR_GENERATOR        = 0.00001
-B1_DISCRIMINATOR    = 0.9
-B1_GENERATOR        = 0.9
+LR_DISCRIMINATOR    = 0.0002
+LR_GENERATOR        = 0.0002
+B1_DISCRIMINATOR    = 0.5
+B1_GENERATOR        = 0.5
 B2_DISCRIMINATOR    = 0.999
 B2_GENERATOR        = 0.999
 
@@ -29,8 +29,9 @@ B2_GENERATOR        = 0.999
 SEED = 2137
 EPOCH_START = 0
 CKPT_EVERY = 30
-LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
-SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/test_run"
+LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/squares/test_1"
+SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/squares/test_1"
+DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/squares"
 
 # ======= Constants ===================================================
 MONITOR_VECTORS     = jax.random.normal(jkey(666), shape=(6, 128))
@@ -61,25 +62,27 @@ class Metrices:
 
         self.acc_real_trace = self.acc_real_trace.at[self.idx].set(acc_real)
         self.acc_fake_trace = self.acc_fake_trace.at[self.idx].set(acc_fake)
-        self.acc_gen_trace = self.acc_gen_trace.at(self.idx).set(acc_gen)
+        self.acc_gen_trace = self.acc_gen_trace.at[self.idx].set(acc_gen)
 
         self.idx += 1
 
 
 def main():
 
-    ds_galaxies = load_ds()
+    dataset = load_ds(
+        ds_path=DATASET_PATH
+    )
 
     epoch_start, state_dis, state_gen = initialize_GAN(
         epoch_start=EPOCH_START,
         checkpoint_dir=LOAD_CKPT_DIR
     )
 
-    state_dis, state_gen, metrices, elapsed_time = train(
+    state_dis, state_gen, _, elapsed_time = train(
         seed=SEED,
         state_dis=state_dis,
         state_gen=state_gen,
-        dataset=ds_galaxies,
+        dataset=dataset,
         epoch_count=EPOCHS,
         epoch_start=epoch_start,
         checkpoint_every=CKPT_EVERY,
