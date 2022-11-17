@@ -17,8 +17,8 @@ from architectures import *
 
 # ======= Hyperparameters =======
 BATCH_SIZE          = 8
-EPOCHS              = 300
-LR_DISCRIMINATOR    = 0.00005
+EPOCHS              = 61
+LR_DISCRIMINATOR    = 0.00002
 LR_GENERATOR        = 0.0002
 B1_DISCRIMINATOR    = 0.5
 B1_GENERATOR        = 0.5
@@ -26,11 +26,11 @@ B2_DISCRIMINATOR    = 0.999
 B2_GENERATOR        = 0.999
 
 # ======= Variables =============
-SEED = 21537
-EPOCH_START = 0
-CKPT_EVERY = 50
-LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxies/seed_21537"
-SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxies/seed_21537"
+SEED = 73512
+EPOCH_START = 39
+CKPT_EVERY = 20
+LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxiesV2/seed_73512"
+SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxiesV2/seed_73512"
 DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/galaxies"
 
 # ======= Constants ===================================================
@@ -127,22 +127,51 @@ def load_state(
         latest_path = latest_checkpoint(checkpoint_dir, "checkpoint-discriminator_")
         epoch = latest_path.split("_")[-1]
 
-    state_restored_dis = restore_checkpoint(
+    # Load trainning states from checkpoints
+    state_restored_dis: TrainState = restore_checkpoint(
         ckpt_dir=checkpoint_dir,
         target=dummy_state_dis,
         step=epoch,
         prefix="checkpoint-discriminator_"
     )
-    state_restored_gen = restore_checkpoint(
+
+    state_restored_gen: TrainState = restore_checkpoint(
         ckpt_dir=checkpoint_dir,
         target=dummy_state_gen,
         step=epoch,
         prefix="checkpoint-generator_"
     )
 
+    # Update optimizers
+    state_dis = TrainState(
+        step=state_restored_dis.step,
+        apply_fn=state_restored_dis.apply_fn,
+        params=state_restored_dis.params,
+        tx=optax.adam(
+            learning_rate=LR_DISCRIMINATOR,
+            b1=B1_DISCRIMINATOR,
+            b2=B2_DISCRIMINATOR
+        ),
+        opt_state=state_restored_dis.tx.init(state_restored_dis.params),
+        batch_stats=state_restored_dis.batch_stats
+    )
+
+    state_gen = TrainState(
+        step=state_restored_gen.step,
+        apply_fn=state_restored_gen.apply_fn,
+        params=state_restored_gen.params,
+        tx=optax.adam(
+            learning_rate=LR_GENERATOR,
+            b1=B1_GENERATOR,
+            b2=B2_GENERATOR
+        ),
+        opt_state=state_restored_gen.tx.init(state_restored_gen.params),
+        batch_stats=state_restored_gen.batch_stats
+    )
+
     print(f"[Info] loaded state from epoch {epoch} checkpoint")
 
-    return epoch, state_restored_dis, state_restored_gen
+    return epoch, state_dis, state_gen
 
 
 def initialize_GAN(
@@ -171,8 +200,6 @@ def initialize_GAN(
 
     return 1, state_dis, state_gen
 
-# ================
-# ================
 
 @jax.jit
 def compute_dis_grads(state_dis: TrainState, batch: Array, labels: Array):
@@ -338,7 +365,7 @@ def train(
     key, epoch_key = jax.random.split(jkey(seed))
 
     # Create structures to accumulate metrices
-    epochs = jnp.arange(epoch_start, epoch_start + epoch_count)
+    epochs = jnp.arange(epoch_start, epoch_start + epoch_count + 1)
     metrices = Metrices(epochs)
 
     # Iterate through the dataset for epochs number of times
