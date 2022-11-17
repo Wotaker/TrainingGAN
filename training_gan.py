@@ -93,7 +93,7 @@ def main():
     print(f'\nTraining time: {elapsed_time:.4f}')
 
 
-def load_ds(ds_path: str = "datasets/galaxies", plot: bool = False):
+def load_ds(ds_path: str = "datasets/amanita", plot: bool = False):
 
     files = os.listdir(ds_path)
     load_galaxy = lambda file: jnp.array(Image.open(os.path.join(ds_path, file)).convert('RGB'))
@@ -415,6 +415,7 @@ def checkpoint(
     epoch: int,
 ) -> None:
 
+    # TODO verify saving directories
     def save_generated():
         
         # Create directory tree if necessary
@@ -423,16 +424,13 @@ def checkpoint(
 
         # Collect checkpoints steps to a list
         checkpoints = os.listdir(os.path.join(checkpoint_dir, "generated"))
-        checkpoints = list(map(lambda cpt: int(cpt.split('_')[-1]), checkpoints))
+        checkpoints = list(map(lambda cpt: int(cpt.split('_')[-1].split('.')[0]), checkpoints))
 
         # Remove later checkpoints (if any)
         to_removal = list(filter(lambda cpt: cpt >= epoch, checkpoints))
         for cpt in to_removal:
             cpt_directory = os.path.join(checkpoint_dir, "generated", f"checkpoint_{cpt}")
             os.system(f'rm -rf {cpt_directory}')
-
-        # Create directory to store generated monitors
-        os.mkdir(os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}"))
 
         # Generate monitor images and save in appropriate checkpoint directory
         n = SQRT_MONITOR
@@ -445,6 +443,7 @@ def checkpoint(
             ax.axis('off')
         fig.tight_layout()
         plt.savefig(os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}.png"))
+        plt.clf()
     
     try:
         save_checkpoint(
@@ -488,7 +487,7 @@ def plot_metrices(checkpoint_dir: str, metrices: Metrices):
     axes[0].plot(epochs, metrices.loss_dis_trace, label="discriminator")
     axes[0].plot(epochs, metrices.loss_gen_trace, label="generator")
     axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Loss Value [%]")
+    axes[0].set_ylabel("Loss Value")
     axes[0].legend()
 
     # Plot accuracy
@@ -496,7 +495,7 @@ def plot_metrices(checkpoint_dir: str, metrices: Metrices):
     axes[1].plot(epochs, 100 * metrices.acc_fake_trace, label="disc. fake")
     axes[1].plot(epochs, 100 * metrices.acc_gen_trace, label="generator")
     axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("Accuracy")
+    axes[1].set_ylabel("Accuracy [%]")
     axes[1].legend()
 
     # Create directory tree if necessary
@@ -507,7 +506,7 @@ def plot_metrices(checkpoint_dir: str, metrices: Metrices):
     plt.close()
 
 
-def plot_samples(batch: Array, subplots_shape: Shape = (3, 5), seed: int = 42):
+def plot_samples(batch: Array, subplots_shape: Shape = (5, 5), seed: int = 42):
 
     rows = subplots_shape[0]
     cols = subplots_shape[1]
