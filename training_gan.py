@@ -34,7 +34,8 @@ SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxiesV2
 DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/galaxies"
 
 # ======= Constants ===================================================
-MONITOR_VECTORS     = jax.random.normal(jkey(666), shape=(6, 128))
+SQRT_MONITOR        = 5
+MONITOR_VECTORS     = jax.random.normal(jkey(666), shape=(SQRT_MONITOR * SQRT_MONITOR, 128))
 GENERATOR_LABELS    = jnp.ones((BATCH_SIZE,))
 IMG_WHITE           = jnp.ones(shape=(64, 64, 3))
 
@@ -434,13 +435,16 @@ def checkpoint(
         os.mkdir(os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}"))
 
         # Generate monitor images and save in appropriate checkpoint directory
-        monitors_imgs = generateV2(state_gen, MONITOR_VECTORS)
-        for idx, img in enumerate(monitors_imgs):
-            plt.imsave(
-                os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}", f"monitor_{idx}.png"),
-                img,
-                cmap="Greys"
-            )
+        n = SQRT_MONITOR
+        monitors_imgs = generateV2(state_gen, MONITOR_VECTORS * 25)
+        fig, axes = plt.subplots(n, n)
+        fig.set_size_inches(n * 2, n * 2)
+        for i in range(n * n):
+            ax = axes[i // n, i % n]
+            ax.imshow(monitors_imgs[i])
+            ax.axis('off')
+        fig.tight_layout()
+        plt.savefig(os.path.join(checkpoint_dir, "generated", f"checkpoint_{epoch}.png"))
     
     try:
         save_checkpoint(
