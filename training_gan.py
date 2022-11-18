@@ -17,21 +17,21 @@ from architectures import *
 
 # ======= Hyperparameters =======
 BATCH_SIZE          = 8
-EPOCHS              = 61
-LR_DISCRIMINATOR    = 0.00002
-LR_GENERATOR        = 0.0002
-B1_DISCRIMINATOR    = 0.5
-B1_GENERATOR        = 0.5
+EPOCHS              = 200
+LR_DISCRIMINATOR    = 0.00001
+LR_GENERATOR        = 0.00001
+B1_DISCRIMINATOR    = 0.9
+B1_GENERATOR        = 0.9
 B2_DISCRIMINATOR    = 0.999
 B2_GENERATOR        = 0.999
 
 # ======= Variables =============
-SEED = 73512
-EPOCH_START = 39
-CKPT_EVERY = 20
-LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxiesV2/seed_73512"
-SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/galaxiesV2/seed_73512"
-DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/galaxies"
+SEED = 22236
+EPOCH_START = 800
+CKPT_EVERY = 50
+LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/amanita/seed_22236/phase_1/retrived"
+SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/amanita/seed_22236/phase_2"
+DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/amanita"
 
 # ======= Constants ===================================================
 SQRT_MONITOR        = 5
@@ -76,7 +76,8 @@ def main():
 
     epoch_start, state_dis, state_gen = initialize_GAN(
         epoch_start=EPOCH_START,
-        checkpoint_dir=LOAD_CKPT_DIR
+        checkpoint_dir=LOAD_CKPT_DIR,
+        reset_dis=True
     )
 
     state_dis, state_gen, _, elapsed_time = train(
@@ -104,8 +105,7 @@ def load_ds(ds_path: str = "datasets/amanita", plot: bool = False):
     
     return images
 
-# TODO Problem, wczytujemy równie stare hiperparametry i nie ma ich jak zmienić
-# dymmy_states są tylko potrzebne jkao pierwowzory kształtu, nic z nich nie zostaje przepisane
+
 def load_state(
     checkpoint_dir: str,
     epoch: int = None
@@ -177,29 +177,51 @@ def load_state(
 
 def initialize_GAN(
     epoch_start: int = None,
-    checkpoint_dir: str = ""
+    checkpoint_dir: str = "",
+    reset_dis: bool = False,
+    reset_gen: bool = False
 ) -> Tuple[int, TrainState, TrainState]:
 
     assert not epoch_start or (epoch_start and checkpoint_dir), \
         f"[Error] You need to provide path to checkpoint dir as well if starting training from epoch {epoch_start}!"
     
+    # Load states
     if epoch_start:
-        return load_state(checkpoint_dir, epoch_start)
-    
-    state_dis = create_Discriminator(
-        seed=SEED,
-        lr=LR_DISCRIMINATOR,
-        b1=B1_DISCRIMINATOR,
-        b2=B2_DISCRIMINATOR
-    )
-    state_gen = create_GeneratorV2(
-        seed=SEED,
-        lr=LR_GENERATOR,
-        b1=B1_GENERATOR,
-        b2=B2_GENERATOR
-    )
+        epoch, state_dis, state_gen = load_state(checkpoint_dir, epoch_start)
+    else:
+        epoch = 1
+        state_dis = create_Discriminator(
+            seed=SEED,
+            lr=LR_DISCRIMINATOR,
+            b1=B1_DISCRIMINATOR,
+            b2=B2_DISCRIMINATOR
+        )
+        state_gen = create_GeneratorV2(
+            seed=SEED,
+            lr=LR_GENERATOR,
+            b1=B1_GENERATOR,
+            b2=B2_GENERATOR
+        )
 
-    return 1, state_dis, state_gen
+        return epoch, state_dis, state_gen
+    
+    # Reset states if necessary
+    if reset_dis:
+        state_dis = create_Discriminator(
+            seed=SEED,
+            lr=LR_DISCRIMINATOR,
+            b1=B1_DISCRIMINATOR,
+            b2=B2_DISCRIMINATOR
+        )
+    if reset_gen:
+        state_gen = create_GeneratorV2(
+            seed=SEED,
+            lr=LR_GENERATOR,
+            b1=B1_GENERATOR,
+            b2=B2_GENERATOR
+        )
+
+    return epoch, state_dis, state_gen
 
 
 @jax.jit
@@ -366,7 +388,7 @@ def train(
     key, epoch_key = jax.random.split(jkey(seed))
 
     # Create structures to accumulate metrices
-    epochs = jnp.arange(epoch_start, epoch_start + epoch_count + 1)
+    epochs = jnp.arange(epoch_start, epoch_start + epoch_count)
     metrices = Metrices(epochs)
 
     # Iterate through the dataset for epochs number of times
@@ -402,7 +424,7 @@ def train(
             print(f'[Warning] Could not save loss plot after epoch {epoch}!')
 
         # Checkpoint every "log_every"
-        if checkpoint_every and (epoch % checkpoint_every == 0 or epoch in {epoch_start, epoch_start + epoch_count - 1}):
+        if checkpoint_every and (epoch % checkpoint_every == 0 or epoch in {int(epochs[0]), int(epochs[-1])}):
             checkpoint(checkpoint_dir, state_dis, state_gen, epoch)
     
     return state_dis, state_gen, metrices, time.time() - t_start
@@ -429,7 +451,7 @@ def checkpoint(
         # Remove later checkpoints (if any)
         to_removal = list(filter(lambda cpt: cpt >= epoch, checkpoints))
         for cpt in to_removal:
-            cpt_directory = os.path.join(checkpoint_dir, "generated", f"checkpoint_{cpt}")
+            cpt_directory = os.path.join(checkpoint_dir, "generated", f"checkpoint_{cpt}.png")
             os.system(f'rm -rf {cpt_directory}')
 
         # Generate monitor images and save in appropriate checkpoint directory

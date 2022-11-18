@@ -68,11 +68,11 @@ class Discriminator(nn.Module):
         
         batch_size = batch.shape[0]
         x = batch / 255
-        x = conv_block(x, 16, training)
-        x = conv_block(x, 32, training)
-        x = conv_block(x, 32, training)
+        x = conv_block(x, 64, training)
+        x = conv_block(x, 128, training)
+        x = conv_block(x, 128, training)
         x = jnp.reshape(x, (batch_size, -1))
-        x = nn.Dropout(rate=0.3, deterministic=not training)(x)
+        x = nn.Dropout(rate=0.2, deterministic=not training)(x)
         x = nn.Dense(features=1)(x)
         x = nn.sigmoid(x)
         
