@@ -17,21 +17,23 @@ from architectures import *
 
 # ======= Hyperparameters =======
 BATCH_SIZE          = 8
-EPOCHS              = 200
+EPOCHS              = 1500
 LR_DISCRIMINATOR    = 0.00001
 LR_GENERATOR        = 0.00001
 B1_DISCRIMINATOR    = 0.9
 B1_GENERATOR        = 0.9
 B2_DISCRIMINATOR    = 0.999
 B2_GENERATOR        = 0.999
+RESET_DIS           = False     # Only considered when loading a saved state
+RESET_GEN           = False     # Only considered when loading a saved state
 
 # ======= Variables =============
 SEED = 22236
-EPOCH_START = 800
-CKPT_EVERY = 50
+EPOCH_START = 0
+CKPT_EVERY = 100
 LOAD_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/amanita/seed_22236/phase_1/retrived"
 SAVE_CKPT_DIR = "/home/students/wciezobka/agh/TrainingGAN/checkpoints/amanita/seed_22236/phase_2"
-DATASET_PATH = "/home/students/wciezobka/agh/TrainingGAN/datasets/amanita"
+DATASET_PATH = "agh/TrainingGAN/datasets/anime_small"
 
 # ======= Constants ===================================================
 SQRT_MONITOR        = 5
@@ -71,13 +73,15 @@ class Metrices:
 def main():
 
     dataset = load_ds(
+        jkey(SEED),
         ds_path=DATASET_PATH
     )
 
     epoch_start, state_dis, state_gen = initialize_GAN(
         epoch_start=EPOCH_START,
         checkpoint_dir=LOAD_CKPT_DIR,
-        reset_dis=True
+        reset_dis=RESET_DIS,
+        reset_gen=RESET_GEN
     )
 
     state_dis, state_gen, _, elapsed_time = train(
@@ -94,14 +98,18 @@ def main():
     print(f'\nTraining time: {elapsed_time:.4f}')
 
 
-def load_ds(ds_path: str = "datasets/amanita", plot: bool = False):
+def load_ds(key: PRNGKey, ds_path: str, ds_size: int = -1, plot: bool = False):
+
+    key, plot_key = jax.random.split(key)
 
     files = os.listdir(ds_path)
-    load_galaxy = lambda file: jnp.array(Image.open(os.path.join(ds_path, file)).convert('RGB'))
-    images = jnp.array(list(map(load_galaxy, files))) / 255
+    ds_size = ds_size if ds_size > 0 else len(files)
+    indeces = jax.random.choice(key, jnp.arange(len(files)), (ds_size,), replace=False)
+    load_images = lambda file_id: jnp.array(Image.open(os.path.join(ds_path, files[file_id])).resize((64, 64)).convert('RGB')) / 255
+    images = jnp.array(list(map(load_images, indeces)))
 
     if plot:
-        plot_samples(images, subplots_shape=(5, 5))
+        plot_samples(plot_key, images, subplots_shape=(5, 5))
     
     return images
 
@@ -172,7 +180,7 @@ def load_state(
 
     print(f"[Info] loaded state from epoch {epoch} checkpoint")
 
-    return epoch, state_dis, state_gen
+    return epoch + 1, state_dis, state_gen
 
 
 def initialize_GAN(
@@ -392,7 +400,7 @@ def train(
     metrices = Metrices(epochs)
 
     # Iterate through the dataset for epochs number of times
-    print(f'[INFO] Training started at {time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}')
+    print(f'[Info] Training started at {time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}')
     t_start = time.time()
     for epoch in epochs:
 
@@ -415,7 +423,7 @@ def train(
 
         # Update loss plot
         print(
-            '[INFO] epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f, acc_real: %.4f, acc_fake: %.4f, acc_gen: %.4f' \
+            '[Info] epoch:% 3d, discriminator_loss: %.4f, generator_loss: %.4f, acc_real: %.4f, acc_fake: %.4f, acc_gen: %.4f' \
                 % (epoch, loss_dis, loss_gen, acc_real, acc_fake, acc_gen)
         )
         try:
@@ -528,13 +536,13 @@ def plot_metrices(checkpoint_dir: str, metrices: Metrices):
     plt.close()
 
 
-def plot_samples(batch: Array, subplots_shape: Shape = (5, 5), seed: int = 42):
+def plot_samples(key: PRNGKey, batch: Array, subplots_shape: Shape = (5, 5)):
 
     rows = subplots_shape[0]
     cols = subplots_shape[1]
     num = rows * cols
 
-    indeces = jax.random.choice(jax.random.PRNGKey(seed), batch.shape[0], (num,), replace=False)
+    indeces = jax.random.choice(key, batch.shape[0], (num,), replace=False)
 
     images = batch[indeces]
 
